@@ -2,8 +2,6 @@
 
 
 function generate_dhparam_ssl() {
-    readonly ssl_dhparam_path="/etc/ssl/certs/$DOMAIN_NAME.pem"
-
     if [ -f "$ssl_dhparam_path" ]
       then
         echo "Error: dhparam certs on this domain already exists."
@@ -21,10 +19,6 @@ function generate_dhparam_ssl() {
 }
 
 function generate_ssl() {
-    readonly ssl_certificate_path="/etc/ssl/certs/$DOMAIN_NAME.crt"
-    readonly ssl_certificate_key_path="/etc/ssl/private/$DOMAIN_NAME.key"
-    readonly nginx_snippets="/etc/nginx/snippets/ssl/$DOMAIN_NAME"
-
     if [ -f "$ssl_certificate_path" ] || [ -f "$ssl_certificate_key_path" ]
       then
         echo "Error: Certs on this domain already exists."
@@ -42,16 +36,36 @@ function generate_ssl() {
     fi
 }
 
+function check_nginx(){
+  if ! nginx -v &> /dev/null
+    then
+      echo "Nginx  could not be found!"
+      exho "Use: sudo apt install nginx; for install them"
+      exit 1
+  fi
+}
+
 function ssl() {
     if [ -z "$DOMAIN_NAME" ]; then
         echo "You haven't passed the domain. Read --help for see usage."
         exit 1;
     fi
 
+    readonly ssl_certificate_path="/etc/ssl/certs/$DOMAIN_NAME.crt"
+    readonly ssl_certificate_key_path="/etc/ssl/private/$DOMAIN_NAME.key"
+    readonly nginx_snippets="/etc/nginx/snippets/ssl/$DOMAIN_NAME"
+    readonly ssl_dhparam_path="/etc/ssl/certs/$DOMAIN_NAME.pem"
+
     read -r -p "Do you want to create self-signed ssl certs by $DOMAIN_NAME? (y/n) " yn
 
     case $yn in
       [yY] )
+
+        if ! touch "$nginx_snippets"; then
+          mkdir -p "/etc/nginx/snippets/ssl/"
+          touch "$nginx_snippets"
+        fi
+
         generate_ssl;
         generate_dhparam_ssl;
         ;;
@@ -60,6 +74,7 @@ function ssl() {
       * ) echo invalid response;
         exit 1;;
     esac
+
     echo "Created ssl certificate on: $ssl_certificate_path"
     echo "Created ssl certificate key on: $ssl_certificate_key_path"
     echo "Created ssl dhparam on: $ssl_dhparam_path"
@@ -92,6 +107,8 @@ function delete_ssl(){
 }
 
 function process_arguments() {
+  check_nginx;
+
   if [[ $# -eq 0 ]]; then
     echo "Use -h/--help for see usage."
   fi
