@@ -8,5 +8,5 @@ curl https://raw.githubusercontent.com/AlanLatte/Nginx-self-signet-ssl/main/ssl.
 
 ## Usage
 ```bash
-./ssl --help
+./ssl.sh --help
 ```
