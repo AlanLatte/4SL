@@ -8,6 +8,8 @@ function generate_dhparam_ssl() {
         exit 1;
     fi
 
+    sudo openssl dhparam -out "$ssl_dhparam_path" 2048
+
     if [ -f "$ssl_dhparam_path" ]
       then
         echo "ssl_dhparam $ssl_dhparam_path;" >> "$nginx_snippets"
@@ -15,7 +17,6 @@ function generate_dhparam_ssl() {
         echo "Error: dhparam certs not Found, the certificate could not be added to nginx."
     fi
 
-    sudo openssl dhparam -out "$ssl_dhparam_path" 2048
 }
 
 function generate_ssl() {
@@ -91,7 +92,7 @@ function cert_paths() {
 }
 
 function __linebreak() {
-  echo "----------------------------------"
+  echo "──────────────────────────────────"
 }
 
 function ssl() {
@@ -107,7 +108,7 @@ function ssl() {
 
       generate_ssl;
 
-      if [ "$CERT_TYPE" == "--nginx" ]; then
+      if [ "$CERT_TYPE" == --nginx ]; then
         generate_dhparam_ssl;
       fi
 
@@ -131,10 +132,12 @@ function ssl() {
 
 function delete_ssl(){
   for index in "${!files[@]}" ; do
-      printf "%d. %s\n" "$index" "${files[$index]:-other}"
+      printf "%d. %s\n" "$index" "${files[$index]}"
   done
 
   read -r -p "You really want to delete this ssl certs? (y/n) " yn
+
+  __linebreak
 
   case $yn in
     [yY] )
@@ -177,18 +180,60 @@ function define_service_name() {
   check_dependencies "$CERT_TYPE"
 }
 
+
+function show_created_by() {
+  echo
+  echo "                                    Created by                "
+  echo "                           ──────────────────────────────     "
+  echo "                                   ┏┓┓     ┓                  "
+  echo "                                   ┣┫┃┏┓┏┓ ┃ ┏┓╋╋┏┓           "
+  echo "                               ━━━━┛┗┗┗┻┛┗•┗┛┗┻┗┗┗━━━━        "
+  echo
+}
+
+
+function help() {
+  echo
+  echo
+  echo "                               /\$\$\$\$\$\$   /\$\$\$\$\$\$  /\$\$             "
+  echo "                              /\$\$__  \$\$ /\$\$__  \$\$| \$\$                 "
+  echo "                             | \$\$  \__/| \$\$  \__/| \$\$                     "
+  echo "                             |  \$\$\$\$\$\$ |  \$\$\$\$\$\$ | \$\$             "
+  echo "                              \____  \$\$ \____  \$\$| \$\$                     "
+  echo "                              /\$\$  \ \$\$ /\$\$  \ \$\$| \$\$                 "
+  echo "                             |  \$\$\$\$\$\$/|  \$\$\$\$\$\$/| \$\$\$\$\$\$\$\$ "
+  echo "                              \______/  \______/ |________/                     "
+  echo
+  echo
+
+  echo
+  echo "Usage: ./ssl.sh [options] [arguments]"
+  echo "Options:";
+  echo "-h/--help                               - Show usage.";
+  echo "-s/--ssl [arguments]                    - Create new ssl certificate.";
+  echo "-d/--delete [arguments]                 - Delete ssl certificate.";
+  echo
+  echo "Arguments:"
+  echo "--nginx [domain]                        - Create or Delete ssl certificate for Nginx.";
+  echo "--docker                                - Create or Delete ssl certificate for Docker.";
+  echo
+  echo "Example:"
+  echo "./ssl.sh --ssl --nginx example.com      - Create  Nginx ssl certificate. for example.com";
+  echo "./ssl.sh --delete --nginx example.com   - Delete Nginx ssl certificate. for example.com";
+  echo "./ssl.sh --ssl --docker                 - Create Docker ssl certificate.";
+  echo "./ssl.sh --delete --docker              - Delete Docker ssl certificate.";
+  show_created_by
+}
+
 function process_arguments() {
   if [[ $# -eq 0 ]]; then
-    echo "Use -h/--help for see usage."
+    help
+    exit 1
   fi
   while [[ $# -gt 0 ]]; do
     case $1 in
       -h|--help)
-        echo "-h/--help                  - Show usage.";
-        echo "-n/--nginx \$domain         - Create new NGINX ssl certificate.";
-        echo "-nd/--nginx-delete \$domain - Delete ssl certificate.";
-        echo "";
-        echo "Created by:                 https://github.com/alan.latte";
+        help
         exit 1;;
       -s|--ssl)
         shift
@@ -208,6 +253,8 @@ function process_arguments() {
 }
 
 process_arguments "$@";
-__linebreak
-echo "Thanks for usage. Created by alan.latte ☕ "
+echo "                              ┌─────────────────────┐"
+echo "                              │  Thanks for usage.  │"
+echo "                              └─────────────────────┘"
+show_created_by
 
