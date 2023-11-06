@@ -108,15 +108,13 @@ function ssl() {
 
   case $yn in
     [yY] )
-
-      if ! ln -s "$nginx_snippets" "/etc/nginx/snippets/ssl/$CERT_NAME"; then
-        mkdir -p "/etc/nginx/snippets/ssl/"
-        ln -s "$nginx_snippets" "/etc/nginx/snippets/ssl/$CERT_NAME"
-      fi
-
       generate_ssl;
 
       if [ "$CERT_TYPE" == --nginx ]; then
+        if ! ln -s "$nginx_snippets" "/etc/nginx/snippets/ssl/$CERT_NAME"; then
+          mkdir -p "/etc/nginx/snippets/ssl/"
+          ln -s "$nginx_snippets" "/etc/nginx/snippets/ssl/$CERT_NAME"
+        fi
         generate_dhparam_ssl;
       fi
 
