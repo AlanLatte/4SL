@@ -34,12 +34,10 @@ function generate_ssl() {
 
     sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$ssl_certificate_key_path" -out "$ssl_certificate_path"
 
-    if [ -f "$ssl_certificate_path" ] && [ -f "$ssl_certificate_key_path" ]
+    if [ -f "$ssl_certificate_path" ] && [ -f "$ssl_certificate_key_path" ] && [ "$CERT_TYPE" == "--nginx" ]
       then
         echo "ssl_certificate $ssl_certificate_path;" >> "$nginx_snippets"
         echo "ssl_certificate_key $ssl_certificate_key_path;" >> "$nginx_snippets"
-      else
-        echo "Error: ssl certs not Found, the certificate could not be added to nginx."
     fi
 }
 
