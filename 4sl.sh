@@ -228,6 +228,7 @@ function help() {
   echo "-h/--help                               - Show usage.";
   echo "-s/--ssl [arguments]                    - Create new ssl certificate.";
   echo "-d/--delete [arguments]                 - Delete ssl certificate.";
+  echo "-exp/--expirations                      - Show ssl certificate expirations."
   echo
   echo "Arguments:"
   echo "--nginx [domain]                        - Create or Delete ssl certificate for Nginx.";
