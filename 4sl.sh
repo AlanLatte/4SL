@@ -1,5 +1,11 @@
 #!/bin/bash
 
+BASE_DIR="/etc/4ls"
+
+SSL_DHPARAM_DIR_PATH="$BASE_DIR/dhparam"
+SSL_CERTIFICATE_DIR_PATH="$BASE_DIR/certs"
+SSL_CERTIFICATE_KEY_DIR_PATH="$BASE_DIR/private"
+NGINX_SNIPPETS_DIR_PATH="$BASE_DIR/nginx/snippets"
 
 function generate_dhparam_ssl() {
     if [ -f "$ssl_dhparam_path" ]
@@ -66,27 +72,28 @@ function check_dependencies(){
     done
 }
 
+
 function cert_paths() {
   files=()
   dhparam=$1
-    if [ -z "$CERT_NAME" ]; then
-    echo "You haven't passed the \$domain. Read --help for see usage."
+
+  if [ -z "$CERT_NAME" ]; then
+    echo "You haven't passed the [domain]. Read --help for see usage."
     exit 1;
   fi
 
   if [ -n "$dhparam" ]; then
-    readonly ssl_dhparam_path="/etc/ssl/certs/$CERT_NAME.pem"
+    readonly ssl_dhparam_path="$SSL_DHPARAM_DIR_PATH/$CERT_NAME.pem"
     files+=("$ssl_dhparam_path")
   fi
 
-  readonly ssl_certificate_path="/etc/ssl/certs/$CERT_NAME.crt"
+  readonly ssl_certificate_path="$SSL_CERTIFICATE_DIR_PATH/$CERT_NAME.crt"
   files+=("$ssl_certificate_path")
 
-  readonly ssl_certificate_key_path="/etc/ssl/private/$CERT_NAME.key"
+  readonly ssl_certificate_key_path="$SSL_CERTIFICATE_KEY_DIR_PATH/$CERT_NAME.key"
   files+=("$ssl_certificate_key_path")
-
   if [ "$CERT_TYPE" == "--nginx" ]; then
-    readonly nginx_snippets="/etc/nginx/snippets/ssl/$CERT_NAME"
+    readonly nginx_snippets="$NGINX_SNIPPETS_DIR_PATH/$CERT_NAME"
     files+=("$nginx_snippets")
   fi
 }
@@ -101,9 +108,9 @@ function ssl() {
   case $yn in
     [yY] )
 
-      if ! touch "$nginx_snippets"; then
+      if ! ln -s "$nginx_snippets" "/etc/nginx/snippets/ssl/$CERT_NAME"; then
         mkdir -p "/etc/nginx/snippets/ssl/"
-        touch "$nginx_snippets"
+        ln -s "$nginx_snippets" "/etc/nginx/snippets/ssl/$CERT_NAME"
       fi
 
       generate_ssl;
@@ -126,7 +133,7 @@ function ssl() {
   if [ "$CERT_TYPE" == "--nginx" ]; then
     echo "Created ssl dhparam on: $ssl_dhparam_path"
     __linebreak
-    echo "Created Nginx snippets on: $nginx_snippets"
+    echo "Created Nginx snippets link on: /etc/nginx/snippets/ssl/$CERT_NAME -> $nginx_snippets"
   fi
 }
 
@@ -151,6 +158,15 @@ function delete_ssl(){
     * ) echo invalid response, exiting...;
       exit 1;;
   esac
+}
+
+function ssl_expiration() {
+  for pem in "$SSL_CERTIFICATE_DIR_PATH"/*.crt; do
+    printf '%s: %s\n' \
+      "$(date --date="$(openssl x509 -enddate -noout -in "$pem"|cut -d= -f 2)" --iso-8601)" \
+      "$pem"
+
+  done | sort
 }
 
 function define_service_name() {
@@ -245,6 +261,10 @@ function process_arguments() {
         define_service_name "$1" "$2"
         delete_ssl;
         break;;
+      -exp|--expirations)
+        shift
+        ssl_expiration;
+        break;;
       *)
         echo "Command not found. Use -h/--help for see usage."
         exit 1;;
@@ -252,7 +272,20 @@ function process_arguments() {
   done
 }
 
+function create_dirs(){
+  dirs=("$BASE_DIR" "$SSL_DHPARAM_DIR_PATH" "$SSL_CERTIFICATE_KEY_DIR_PATH" "$SSL_CERTIFICATE_DIR_PATH" "$NGINX_SNIPPETS_DIR_PATH")
+  for dir in "${dirs[@]}"; do
+    if ! [ -d "$dir" ]; then
+      mkdir -p "$dir"
+    fi
+  done
+}
+
+
+create_dirs;
 process_arguments "$@";
+echo
+echo
 echo "                              ┌─────────────────────┐"
 echo "                              │  Thanks for usage.  │"
 echo "                              └─────────────────────┘"
