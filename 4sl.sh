@@ -223,7 +223,7 @@ function help() {
   echo
 
   echo
-  echo "Usage: ./4sl.sh [options] [arguments]"
+  echo "Usage: 4sl [options] [arguments]"
   echo "Options:";
   echo "-h/--help                               - Show usage.";
   echo "-s/--ssl [arguments]                    - Create new ssl certificate.";
@@ -235,10 +235,10 @@ function help() {
   echo "--docker                                - Create or Delete ssl certificate for Docker.";
   echo
   echo "Example:"
-  echo "./4sl.sh --ssl --nginx example.com      - Create  Nginx ssl certificate. for example.com";
-  echo "./4sl.sh --delete --nginx example.com   - Delete Nginx ssl certificate. for example.com";
-  echo "./4sl.sh --ssl --docker                 - Create Docker ssl certificate.";
-  echo "./4sl.sh --delete --docker              - Delete Docker ssl certificate.";
+  echo "4sl --ssl --nginx example.com      - Create  Nginx ssl certificate. for example.com";
+  echo "4sl --delete --nginx example.com   - Delete Nginx ssl certificate. for example.com";
+  echo "4sl --ssl --docker                 - Create Docker ssl certificate.";
+  echo "4sl --delete --docker              - Delete Docker ssl certificate.";
   show_created_by
 }
 
