@@ -195,14 +195,14 @@ function show_created_by() {
 function help() {
   echo
   echo
-  echo "                               /\$\$\$\$\$\$   /\$\$\$\$\$\$  /\$\$             "
-  echo "                              /\$\$__  \$\$ /\$\$__  \$\$| \$\$                 "
-  echo "                             | \$\$  \__/| \$\$  \__/| \$\$                     "
-  echo "                             |  \$\$\$\$\$\$ |  \$\$\$\$\$\$ | \$\$             "
-  echo "                              \____  \$\$ \____  \$\$| \$\$                     "
-  echo "                              /\$\$  \ \$\$ /\$\$  \ \$\$| \$\$                 "
-  echo "                             |  \$\$\$\$\$\$/|  \$\$\$\$\$\$/| \$\$\$\$\$\$\$\$ "
-  echo "                              \______/  \______/ |________/                     "
+  echo "                        /$\$   /$\$     /$\$$\$$\$     /$\$               "
+  echo "                       | $\$  | $\$    /$\$__  $\$   | $\$                "
+  echo "                       | $\$  | $\$   | $\$  \__/   | $\$                 "
+  echo "                       | $\$$\$$\$$\$   |  $\$$\$$\$    | $\$             "
+  echo "                       |_____  $\$    \____  $\$   | $\$                  "
+  echo "                             | $\$    /$\$  \ $\$   | $\$                 "
+  echo "                             | $\$   |  $\$$\$$\$/   | $\$$\$$\$$\$       "
+  echo "                             |__/    \______/    |________/               "
   echo
   echo
 
@@ -218,10 +218,10 @@ function help() {
   echo "--docker                                - Create or Delete ssl certificate for Docker.";
   echo
   echo "Example:"
-  echo "./ssl.sh --ssl --nginx example.com      - Create  Nginx ssl certificate. for example.com";
-  echo "./ssl.sh --delete --nginx example.com   - Delete Nginx ssl certificate. for example.com";
-  echo "./ssl.sh --ssl --docker                 - Create Docker ssl certificate.";
-  echo "./ssl.sh --delete --docker              - Delete Docker ssl certificate.";
+  echo "./4sl.sh --ssl --nginx example.com      - Create  Nginx ssl certificate. for example.com";
+  echo "./4sl.sh --delete --nginx example.com   - Delete Nginx ssl certificate. for example.com";
+  echo "./4sl.sh --ssl --docker                 - Create Docker ssl certificate.";
+  echo "./4sl.sh --delete --docker              - Delete Docker ssl certificate.";
   show_created_by
 }
 
