@@ -207,7 +207,7 @@ function help() {
   echo
 
   echo
-  echo "Usage: ./ssl.sh [options] [arguments]"
+  echo "Usage: ./4sl.sh [options] [arguments]"
   echo "Options:";
   echo "-h/--help                               - Show usage.";
   echo "-s/--ssl [arguments]                    - Create new ssl certificate.";
