@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BASE_DIR="/etc/4ls"
+BASE_DIR="/etc/4sl"
 
 SSL_DHPARAM_DIR_PATH="$BASE_DIR/dhparam"
 SSL_CERTIFICATE_DIR_PATH="$BASE_DIR/certs"
@@ -95,6 +95,7 @@ function cert_paths() {
   if [ "$CERT_TYPE" == "--nginx" ]; then
     readonly nginx_snippets="$NGINX_SNIPPETS_DIR_PATH/$CERT_NAME"
     files+=("$nginx_snippets")
+    files+=("/etc/nginx/snippets/ssl/$CERT_NAME")
   fi
 }
 
@@ -161,11 +162,18 @@ function delete_ssl(){
 }
 
 function ssl_expiration() {
-  for pem in "$SSL_CERTIFICATE_DIR_PATH"/*.crt; do
-    printf '%s: %s\n' \
-      "$(date --date="$(openssl x509 -enddate -noout -in "$pem"|cut -d= -f 2)" --iso-8601)" \
-      "$pem"
+  if ! [ -d "$SSL_CERTIFICATE_DIR_PATH" ]; then
+    echo "Not found any certs."
+    exit 1
+  fi
 
+  for pem in "$SSL_CERTIFICATE_DIR_PATH"/*.crt; do
+    # 2678400 - 31d
+    if openssl x509 -checkend 2678400 -noout -in "$pem" &> /dev/null; then
+      printf "[ + ]: %s - %s\n" "$(date --date="$(openssl x509 -enddate -noout -in "$pem"|cut -d= -f 2)" --iso-8601)" "$pem"
+    else
+      printf "[ - ]: %s - %s\n" "$(date --date="$(openssl x509 -enddate -noout -in "$pem"|cut -d= -f 2)" --iso-8601)" "$pem"
+    fi
   done | sort
 }
 
@@ -256,16 +264,15 @@ function process_arguments() {
         shift
         define_service_name "$1" "$2"
         ssl;
-        break;;
+        break ;;
       -d|--delete)
         shift
         define_service_name "$1" "$2"
         delete_ssl;
-        break;;
+        break ;;
       -exp|--expirations)
-        shift
-        ssl_expiration;
-        break;;
+        ssl_expiration
+        break ;;
       *)
         echo "Command not found. Use -h/--help for see usage."
         exit 1;;
