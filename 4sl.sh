@@ -8,6 +8,7 @@ SSL_CERTIFICATE_KEY_DIR_PATH="$BASE_DIR/private"
 NGINX_SNIPPETS_DIR_PATH="$BASE_DIR/nginx/snippets"
 
 SILENT_MODE=false
+AUTO_CONFIRM=false
 
 function generate_dhparam_ssl() {
     if [ -f "$ssl_dhparam_path" ]
@@ -109,7 +110,11 @@ function __linebreak() {
 }
 
 function ssl() {
-  read -r -p "Do you want to create self-signed ssl certs by $CERT_NAME? (y/n) " yn
+  if [ "$AUTO_CONFIRM" = true ]; then
+    yn="y"
+  else
+    read -r -p "Do you want to create self-signed ssl certs by $CERT_NAME? (y/n) " yn
+  fi
 
   case $yn in
     [yY] )
@@ -141,12 +146,17 @@ function ssl() {
   fi
 }
 
+
 function delete_ssl(){
   for index in "${!files[@]}" ; do
       printf "%d. %s\n" "$index" "${files[$index]}"
   done
 
-  read -r -p "You really want to delete this ssl certs? (y/n) " yn
+  if [ "$AUTO_CONFIRM" = true ]; then
+    yn="y"
+  else
+    read -r -p "You really want to delete this ssl certs? (y/n) " yn
+  fi
 
   __linebreak
 
@@ -239,6 +249,8 @@ function help() {
   echo "-d/--delete [arguments]                 - Delete SSL certificate."
   echo "-exp/--expirations                      - Show SSL certificate expirations."
   echo "--silent                                - Enable silent mode for non-interactive certificate generation."
+  echo "-y                                      - Automatically confirm deletion prompts."
+  echo "--update                                - Update the 4sl script to the latest version."
   echo
   echo "Arguments:"
   echo "--nginx [domain]                        - Create or Delete SSL certificate for Nginx."
@@ -250,9 +262,21 @@ function help() {
   echo "4sl --ssl --docker                      - Create Docker SSL certificate."
   echo "4sl --delete --docker                   - Delete Docker SSL certificate."
   echo "4sl --ssl --nginx example.com --silent  - Create Nginx SSL certificate for example.com in silent mode."
+  echo "4sl --delete --nginx example.com -y     - Delete Nginx SSL certificate for example.com without confirmation."
+  echo "4sl --update                            - Update the 4sl script to the latest version."
   show_created_by
 }
 
+function update_script() {
+  echo "Updating the 4sl script..."
+  curl https://raw.githubusercontent.com/AlanLatte/4SL/main/4sl.sh > 4sl.sh && chmod +x ./4sl.sh && sudo mv ./4sl.sh /usr/local/bin/4sl
+  if [ $? -eq 0 ]; then
+    echo "Update completed successfully."
+  else
+    echo "Update failed. Please check your internet connection and try again."
+    exit 1
+  fi
+}
 
 function process_arguments() {
   if [[ $# -eq 0 ]]; then
@@ -275,6 +299,9 @@ function process_arguments() {
       -d|--delete)
         shift
         define_service_name "$1" "$2"
+        if [[ "$*" == *-y* ]]; then
+          AUTO_CONFIRM=true
+        fi
         delete_ssl;
         break ;;
       -exp|--expirations)
@@ -283,6 +310,12 @@ function process_arguments() {
       --silent)
         SILENT_MODE=true
         shift;;
+      -y)
+        AUTO_CONFIRM=true
+        shift;;
+      --update)
+        update_script
+        exit 0;;
       *)
         echo "Command not found. Use -h/--help to see usage."
         exit 1;;
