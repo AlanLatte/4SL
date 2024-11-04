@@ -294,6 +294,9 @@ function process_arguments() {
         if [[ "$*" == *--silent* ]]; then
           SILENT_MODE=true
         fi
+        if [[ "$*" == *-y* ]]; then
+          AUTO_CONFIRM=true
+        fi
         ssl;
         break ;;
       -d|--delete)
