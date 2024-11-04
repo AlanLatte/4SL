@@ -7,6 +7,8 @@ SSL_CERTIFICATE_DIR_PATH="$BASE_DIR/certs"
 SSL_CERTIFICATE_KEY_DIR_PATH="$BASE_DIR/private"
 NGINX_SNIPPETS_DIR_PATH="$BASE_DIR/nginx/snippets"
 
+SILENT_MODE=false
+
 function generate_dhparam_ssl() {
     if [ -f "$ssl_dhparam_path" ]
       then
@@ -32,7 +34,11 @@ function generate_ssl() {
         exit 1;
     fi
 
-    sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$ssl_certificate_key_path" -out "$ssl_certificate_path"
+    if [ "$SILENT_MODE" = true ]; then
+      sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$ssl_certificate_key_path" -out "$ssl_certificate_path" -subj "/C=US/ST=State/L=City/O=Organization/OU=Unit/CN=$CERT_NAME"
+    else
+      sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$ssl_certificate_key_path" -out "$ssl_certificate_path"
+    fi
 
     if [ -f "$ssl_certificate_path" ] && [ -f "$ssl_certificate_key_path" ] && [ "$CERT_TYPE" == "--nginx" ]
       then
@@ -40,6 +46,7 @@ function generate_ssl() {
         echo "ssl_certificate_key $ssl_certificate_key_path;" >> "$nginx_snippets"
     fi
 }
+
 
 function check_dependencies(){
 
@@ -225,26 +232,27 @@ function help() {
   echo "                             |__/    \______/    |________/               "
   echo
   echo
-
-  echo
   echo "Usage: 4sl [options] [arguments]"
-  echo "Options:";
-  echo "-h/--help                               - Show usage.";
-  echo "-s/--ssl [arguments]                    - Create new ssl certificate.";
-  echo "-d/--delete [arguments]                 - Delete ssl certificate.";
-  echo "-exp/--expirations                      - Show ssl certificate expirations."
+  echo "Options:"
+  echo "-h/--help                               - Show usage."
+  echo "-s/--ssl [arguments]                    - Create new SSL certificate."
+  echo "-d/--delete [arguments]                 - Delete SSL certificate."
+  echo "-exp/--expirations                      - Show SSL certificate expirations."
+  echo "--silent                                - Enable silent mode for non-interactive certificate generation."
   echo
   echo "Arguments:"
-  echo "--nginx [domain]                        - Create or Delete ssl certificate for Nginx.";
-  echo "--docker                                - Create or Delete ssl certificate for Docker.";
+  echo "--nginx [domain]                        - Create or Delete SSL certificate for Nginx."
+  echo "--docker                                - Create or Delete SSL certificate for Docker."
   echo
   echo "Example:"
-  echo "4sl --ssl --nginx example.com           - Create  Nginx ssl certificate. for example.com";
-  echo "4sl --delete --nginx example.com        - Delete Nginx ssl certificate. for example.com";
-  echo "4sl --ssl --docker                      - Create Docker ssl certificate.";
-  echo "4sl --delete --docker                   - Delete Docker ssl certificate.";
+  echo "4sl --ssl --nginx example.com           - Create Nginx SSL certificate for example.com."
+  echo "4sl --delete --nginx example.com        - Delete Nginx SSL certificate for example.com."
+  echo "4sl --ssl --docker                      - Create Docker SSL certificate."
+  echo "4sl --delete --docker                   - Delete Docker SSL certificate."
+  echo "4sl --ssl --nginx example.com --silent  - Create Nginx SSL certificate for example.com in silent mode."
   show_created_by
 }
+
 
 function process_arguments() {
   if [[ $# -eq 0 ]]; then
@@ -259,6 +267,9 @@ function process_arguments() {
       -s|--ssl)
         shift
         define_service_name "$1" "$2"
+        if [[ "$*" == *--silent* ]]; then
+          SILENT_MODE=true
+        fi
         ssl;
         break ;;
       -d|--delete)
@@ -269,8 +280,11 @@ function process_arguments() {
       -exp|--expirations)
         ssl_expiration
         break ;;
+      --silent)
+        SILENT_MODE=true
+        shift;;
       *)
-        echo "Command not found. Use -h/--help for see usage."
+        echo "Command not found. Use -h/--help to see usage."
         exit 1;;
     esac
   done
