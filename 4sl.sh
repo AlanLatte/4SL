@@ -360,8 +360,9 @@ function remove_ssl() {
   local dhparam="$SSL_DHPARAM_DIR_PATH/$domain.pem"
   local snippet="$NGINX_SNIPPETS_DIR_PATH/$domain"
   local snippet_link="/etc/nginx/snippets/ssl/$domain"
+  local cron="/etc/cron.weekly/$domain"
 
-  local all_files=("$cert" "$key" "$dhparam" "$snippet" "$snippet_link")
+  local all_files=("$cert" "$key" "$dhparam" "$snippet" "$snippet_link" "$cron")
 
   if ! $AUTO_CONFIRM; then
     echo "Файлы для удаления:"
