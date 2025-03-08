@@ -109,17 +109,52 @@ function check_dependencies(){
 function generate_dhparam_ssl() {
     if [ -f "$ssl_dhparam_path" ]; then
         log "Error: dhparam уже существует для $CERT_NAME."
-        return  # просто выходим; можно поставить exit 1 при желании
+        return
     fi
 
-    log "Генерация dhparam в $ssl_dhparam_path ..."
-    sudo openssl dhparam -out "$ssl_dhparam_path" 2048
+    log "Генерация dhparam (2048 bit) может занять некоторое время..."
 
+    # Запускаем openssl в фоновом режиме, убирая весь вывод
+    (
+      openssl dhparam -out "$ssl_dhparam_path" 2048
+    )>/dev/null 2>&1 &
+
+    # PID фонового процесса
+    local pid=$!
+
+    # Небольшой “спиннер”
+    local i=0
+    # Можно придумать другой набор символов, например '.oO°Oo.'
+    local sp='|/-\'
+
+    # Пока процесс жив, выводим спиннер
+    while kill -0 "$pid" 2>/dev/null; do
+      i=$(( (i+1) %4 ))
+      # \r возвращает курсор в начало строки
+      printf "\rГенерация DH: ${sp:$i:1}"
+      sleep 0.1
+    done
+
+    # Дождаемся завершения фонового процесса и берём его код возврата
+    wait "$pid"
+    local status=$?
+
+    # Стираем спиннер и выводим результат
+    printf "\r"
+
+    if [ $status -ne 0 ]; then
+      log "Ошибка при генерации dhparam!"
+      return
+    fi
+
+    log "dhparam успешно создан в $ssl_dhparam_path"
+
+    # Если нужно сразу же дописать в сниппет
     if [ -f "$ssl_dhparam_path" ]; then
         echo "ssl_dhparam $ssl_dhparam_path;" >> "$nginx_snippets"
-        log "dhparam успешно создан и добавлен в $nginx_snippets"
+        log "Добавлен 'ssl_dhparam $ssl_dhparam_path;' в $nginx_snippets"
     else
-        log "Error: dhparam не найден. Сертификат не был добавлен в nginx."
+        log "Error: dhparam-файл не найден, не удалось добавить в nginx."
     fi
 }
 
