@@ -7,22 +7,109 @@ SSL_CERTIFICATE_DIR_PATH="$BASE_DIR/certs"
 SSL_CERTIFICATE_KEY_DIR_PATH="$BASE_DIR/private"
 NGINX_SNIPPETS_DIR_PATH="$BASE_DIR/nginx/snippets"
 
-SILENT_MODE=false
-AUTO_CONFIRM=false
-
-# Файл для логирования всех действий
+# Файл для логирования
 LOG_FILE="/var/log/4sl.log"
 
-# Удобная функция для логов: дублирует сообщение и в консоль, и в лог
+# Флаги/переменные для операций
+CREATE_SSL=false
+DELETE_SSL=false
+SHOW_EXPIRATIONS=false
+DO_UPDATE=false
+DO_RENEW_SSL=false
+RENEW_MODE="auto"  # по умолчанию
+REMOVE_DOMAIN=""
+
+# Остальные настройки
+SILENT_MODE=false
+AUTO_CONFIRM=false
+CERT_TYPE=""  # --nginx или --docker
+CERT_NAME=""  # example.com или docker
+
+# Пути для будущего использования
+ssl_dhparam_path=""
+ssl_certificate_path=""
+ssl_certificate_key_path=""
+nginx_snippets=""
+
+#################################################################
+##                   Функции логирования                       ##
+#################################################################
 function log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
 }
 
+function __linebreak() {
+  echo "──────────────────────────────────"
+}
+
+#################################################################
+##               Основные функциональные блоки                 ##
+#################################################################
+
+# Создание необходимых директорий
+function create_dirs(){
+  dirs=("$BASE_DIR" "$SSL_DHPARAM_DIR_PATH" "$SSL_CERTIFICATE_KEY_DIR_PATH" "$SSL_CERTIFICATE_DIR_PATH" "$NGINX_SNIPPETS_DIR_PATH")
+  for dir in "${dirs[@]}"; do
+    if ! [ -d "$dir" ]; then
+      mkdir -p "$dir"
+    fi
+  done
+}
+
+# Определить пути к файлам сертификата
+function cert_paths() {
+  files=()
+  local dhparam=$1
+
+  if [ -z "$CERT_NAME" ]; then
+    log "Не указано имя домена (CERT_NAME). Используйте --help для справки."
+    exit 1
+  fi
+
+  if [ -n "$dhparam" ]; then
+    ssl_dhparam_path="$SSL_DHPARAM_DIR_PATH/$CERT_NAME.pem"
+  fi
+
+  ssl_certificate_path="$SSL_CERTIFICATE_DIR_PATH/$CERT_NAME.crt"
+  ssl_certificate_key_path="$SSL_CERTIFICATE_KEY_DIR_PATH/$CERT_NAME.key"
+
+  if [ "$CERT_TYPE" == "--nginx" ]; then
+    nginx_snippets="$NGINX_SNIPPETS_DIR_PATH/$CERT_NAME"
+  fi
+}
+
+# Проверка зависимостей
+function check_dependencies(){
+  if ! openssl version &> /dev/null; then
+    log "Openssl не установлен! (sudo apt install openssl -y)"
+    exit 1
+  fi
+
+  # если есть docker или nginx, проверяем
+  case $CERT_TYPE in
+    --nginx)
+      if ! nginx -v &> /dev/null; then
+        log "Nginx не установлен! (sudo apt install nginx -y)"
+        exit 1
+      fi
+      ;;
+    --docker)
+      if ! docker -v &> /dev/null; then
+        log "Docker не установлен! (curl -fsSL https://get.docker.com | sh)"
+        # при желании здесь можно ставить exit 1
+      fi
+      ;;
+  esac
+}
+
+#################################################################
+##                    Создание/Удаление SSL                    ##
+#################################################################
+
 function generate_dhparam_ssl() {
-    if [ -f "$ssl_dhparam_path" ]
-      then
+    if [ -f "$ssl_dhparam_path" ]; then
         log "Error: dhparam уже существует для $CERT_NAME."
-        exit 1;
+        return  # просто выходим; можно поставить exit 1 при желании
     fi
 
     log "Генерация dhparam в $ssl_dhparam_path ..."
@@ -37,9 +124,10 @@ function generate_dhparam_ssl() {
 }
 
 function generate_ssl() {
+    # Проверяем, может уже есть
     if [ -f "$ssl_certificate_path" ] || [ -f "$ssl_certificate_key_path" ]; then
-        log "Error: Сертификаты для $CERT_NAME уже существуют."
-        exit 1;
+        log "Error: Сертификаты для $CERT_NAME уже существуют. Пропускаем генерацию."
+        return
     fi
 
     log "Генерация самоподписанного сертификата для $CERT_NAME ..."
@@ -54,154 +142,84 @@ function generate_ssl() {
        -out "$ssl_certificate_path"
     fi
 
-    # Если всё успешно создалось и это nginx-сертификат, прописываем путь в snippets
+    # Если всё успешно и это nginx-сертификат, прописываем путь в snippets
     if [ -f "$ssl_certificate_path" ] && [ -f "$ssl_certificate_key_path" ] && [ "$CERT_TYPE" == "--nginx" ]; then
         echo "ssl_certificate $ssl_certificate_path;" >> "$nginx_snippets"
         echo "ssl_certificate_key $ssl_certificate_key_path;" >> "$nginx_snippets"
         log "Сертификат и ключ добавлены в $nginx_snippets"
-    fi
-}
 
-
-function check_dependencies(){
-  if ! openssl version &> /dev/null; then
-    log "Openssl не установлен!"
-    log "Для установки: sudo apt install openssl -y"
-    exit 1
-  fi
-
-  arr=("$@")
-  for i in "${arr[@]}"; do
-    case $i in
-      --nginx)
-        if ! nginx -v &> /dev/null; then
-          log "Nginx не установлен!"
-          log "Для установки: sudo apt install nginx -y"
-          exit 1
-        fi
-        ;;
-      --docker)
-        if ! docker -v &> /dev/null; then
-          log "Docker не установлен!"
-          log "Для установки: curl -fsSL https://get.docker.com | sh"
-          # Здесь можно exit 1 или просто логировать
-        fi
-        ;;
-      *)
-        log "Данный сервис не поддерживается."
-        exit 1
-        ;;
-    esac
-  done
-}
-
-function cert_paths() {
-  files=()
-  dhparam=$1
-
-  if [ -z "$CERT_NAME" ]; then
-    log "Не указано имя домена (CERT_NAME). Используйте --help для справки."
-    exit 1
-  fi
-
-  if [ -n "$dhparam" ]; then
-    readonly ssl_dhparam_path="$SSL_DHPARAM_DIR_PATH/$CERT_NAME.pem"
-    files+=("$ssl_dhparam_path")
-  fi
-
-  readonly ssl_certificate_path="$SSL_CERTIFICATE_DIR_PATH/$CERT_NAME.crt"
-  files+=("$ssl_certificate_path")
-
-  readonly ssl_certificate_key_path="$SSL_CERTIFICATE_KEY_DIR_PATH/$CERT_NAME.key"
-  files+=("$ssl_certificate_key_path")
-
-  if [ "$CERT_TYPE" == "--nginx" ]; then
-    readonly nginx_snippets="$NGINX_SNIPPETS_DIR_PATH/$CERT_NAME"
-    files+=("$nginx_snippets")
-    files+=("/etc/nginx/snippets/ssl/$CERT_NAME")
-  fi
-}
-
-function __linebreak() {
-  echo "──────────────────────────────────"
-}
-
-function ssl() {
-  if [ "$AUTO_CONFIRM" = true ]; then
-    yn="y"
-  else
-    read -r -p "Создать самоподписанный ssl-сертификат для $CERT_NAME? (y/n) " yn
-  fi
-
-  case $yn in
-    [yY] )
-      generate_ssl
-
-      if [ "$CERT_TYPE" == --nginx ]; then
-        # Создаем ссылку в /etc/nginx/snippets/ssl/
-        if ! ln -s "$nginx_snippets" "/etc/nginx/snippets/ssl/$CERT_NAME" 2>/dev/null; then
+        # Создадим симлинк, если нужно
+        if ! [ -L "/etc/nginx/snippets/ssl/$CERT_NAME" ]; then
           mkdir -p "/etc/nginx/snippets/ssl/"
           ln -s "$nginx_snippets" "/etc/nginx/snippets/ssl/$CERT_NAME"
+          log "Создана символьная ссылка: /etc/nginx/snippets/ssl/$CERT_NAME -> $nginx_snippets"
         fi
-        generate_dhparam_ssl
-      fi
-      ;;
-    [nN] )
-      log "Операция отменена пользователем."
-      exit
-      ;;
-    * )
-      log "Неверный ответ, отмена..."
-      exit 1
-      ;;
-  esac
+    fi
 
-  __linebreak
-  log "Создан SSL-сертификат:       $ssl_certificate_path"
-  log "Создан ключ SSL-сертификата: $ssl_certificate_key_path"
-
-  if [ "$CERT_TYPE" == "--nginx" ]; then
-    log "Создан dhparam: $ssl_dhparam_path"
     __linebreak
-    log "Создана символьная ссылка: /etc/nginx/snippets/ssl/$CERT_NAME -> $nginx_snippets"
+    log "Создан SSL-сертификат:       $ssl_certificate_path"
+    log "Создан ключ SSL-сертификата: $ssl_certificate_key_path"
+}
+
+function ssl_create_main() {
+  # Интеррактивное подтверждение (если не стоит -y)
+  if ! $AUTO_CONFIRM; then
+    read -r -p "Создать самоподписанный ssl-сертификат для $CERT_NAME? (y/n) " yn
+    case $yn in
+      [yY]) true ;;
+      [nN]) log "Операция отменена пользователем."; return ;;
+      *)    log "Неверный ответ, отмена..."; return ;;
+    esac
+  fi
+
+  generate_ssl
+  if [ "$CERT_TYPE" == "--nginx" ]; then
+    generate_dhparam_ssl
   fi
 }
 
-function delete_ssl(){
-  __linebreak
-  log "Файлы, которые будут удалены:"
-  for index in "${!files[@]}" ; do
-      printf "%d. %s\n" "$index" "${files[$index]}"
-  done
-
-  if [ "$AUTO_CONFIRM" = true ]; then
-    yn="y"
-  else
-    read -r -p "Вы уверены, что хотите удалить эти файлы? (y/n) " yn
+function delete_ssl_files() {
+  # Собираем список файлов
+  local files_to_delete=()
+  # crt/key
+  if [ -n "$ssl_certificate_path" ]; then
+    files_to_delete+=("$ssl_certificate_path")
+  fi
+  if [ -n "$ssl_certificate_key_path" ]; then
+    files_to_delete+=("$ssl_certificate_key_path")
+  fi
+  # dhparam
+  if [ -n "$ssl_dhparam_path" ]; then
+    files_to_delete+=("$ssl_dhparam_path")
+  fi
+  # snippets
+  if [ -n "$nginx_snippets" ]; then
+    files_to_delete+=("$nginx_snippets")
+    files_to_delete+=("/etc/nginx/snippets/ssl/$CERT_NAME")
   fi
 
-  __linebreak
+  log "Файлы, которые будут удалены:"
+  for f in "${files_to_delete[@]}"; do
+    echo "$f"
+  done
 
-  case $yn in
-    [yY] )
-      for file in "${files[@]}"; do
-        if [ -f "$file" ] || [ -L "$file" ]; then
-          log "Удаляю: $file"
-          rm -f "$file"
-        else
-          log "Файл не найден, пропускаю: $file"
-        fi
-      done
-      ;;
-    [nN] )
-      log "Удаление отменено пользователем."
-      exit
-      ;;
-    * )
-      log "Неверный ответ, отмена..."
-      exit 1
-      ;;
-  esac
+  if ! $AUTO_CONFIRM; then
+    read -r -p "Вы уверены, что хотите удалить эти файлы? (y/n) " yn
+    case $yn in
+      [yY]) true ;;
+      [nN]) log "Удаление отменено."; return ;;
+      *)    log "Неверный ответ, отмена..."; return ;;
+    esac
+  fi
+
+  for file in "${files_to_delete[@]}"; do
+    if [ -f "$file" ] || [ -L "$file" ]; then
+      log "Удаляю: $file"
+      rm -f "$file"
+    else
+      log "Файл не найден, пропускаю: $file"
+    fi
+  done
 }
 
 function ssl_expiration() {
@@ -211,43 +229,147 @@ function ssl_expiration() {
   fi
 
   for pem in "$SSL_CERTIFICATE_DIR_PATH"/*.crt; do
-    # 2678400 - ~31 день
+    [ -e "$pem" ] || continue  # если файлов нет
+    # 2678400 ~ 31 день
     if openssl x509 -checkend 2678400 -noout -in "$pem" &> /dev/null; then
-      printf "[ + ]: %s - %s\n" "$(date --date="$(openssl x509 -enddate -noout -in "$pem"|cut -d= -f 2)" --iso-8601)" "$pem"
+      printf "[ + ]: %s - %s\n" "$(date --date="$(openssl x509 -enddate -noout -in "$pem" | cut -d= -f 2)" --iso-8601)" "$pem"
     else
-      printf "[ - ]: %s - %s\n" "$(date --date="$(openssl x509 -enddate -noout -in "$pem"|cut -d= -f 2)" --iso-8601)" "$pem"
+      printf "[ - ]: %s - %s\n" "$(date --date="$(openssl x509 -enddate -noout -in "$pem" | cut -d= -f 2)" --iso-8601)" "$pem"
     fi
   done | sort
 }
 
-function define_service_name() {
-  readonly CERT_TYPE=$1
-  if [ -z "$CERT_TYPE" ]; then
-    log "Нужно указать --docker или --nginx. Используйте --help для справки."
+#################################################################
+##              Переподписание (renew) сертификата             ##
+#################################################################
+
+function create_cron_job() {
+  # Создаем (или перезаписываем) файл для еженедельного cron-job.
+  local cron_file="/etc/cron.weekly/4sl-renew-$CERT_NAME"
+
+  log "Создаю cron-задачу для $CERT_NAME в $cron_file..."
+  sudo bash -c "cat <<EOF > \"$cron_file\"
+#!/bin/bash
+/usr/local/bin/4sl --renew-ssl manual $CERT_TYPE $CERT_NAME >> /var/log/4sl.log 2>&1
+EOF
+"
+  sudo chmod +x "$cron_file"
+  log "Cron-задача $cron_file успешно создана."
+}
+
+function renew_ssl() {
+  if [ ! -f "$ssl_certificate_path" ]; then
+    # Если сертификат не существует, нет смысла «переподписывать».
+    # Но если хотим всё равно проставить cron (auto), то делаем это.
+    log "Сертификат $ssl_certificate_path не найден. Нечего переподписывать."
+    if [ "$RENEW_MODE" == "auto" ]; then
+      create_cron_job
+    fi
+    return
+  fi
+
+  log "Проверяем срок действия сертификата: $ssl_certificate_path"
+  local now
+  now=$(date +%s)
+  local exp_date
+  exp_date=$(openssl x509 -enddate -noout -in "$ssl_certificate_path" 2>/dev/null | cut -d= -f2)
+  if [ -z "$exp_date" ]; then
+    log "Не удалось определить дату окончания действия сертификата."
+    return
+  fi
+
+  local expiration
+  expiration=$(date -d "$exp_date" +%s 2>/dev/null)
+  if [ $? -ne 0 ]; then
+    log "Ошибка в обработке даты окончания сертификата."
+    return
+  fi
+
+  local diff=$(( expiration - now ))
+  local seven_days=$(( 7 * 24 * 3600 ))
+
+  if [ $diff -lt $seven_days ]; then
+    log "До истечения < 7 дней. Переподписываем..."
+    rm -f "$ssl_certificate_path" "$ssl_certificate_key_path"
+    if [ "$CERT_TYPE" == "--nginx" ]; then
+      rm -f "$ssl_dhparam_path"
+    fi
+    generate_ssl
+    if [ "$CERT_TYPE" == "--nginx" ]; then
+      generate_dhparam_ssl
+    fi
+    log "Переподписание сертификата для $CERT_NAME завершено."
+  else
+    log "Сертификат $CERT_NAME действителен более 7 дней. Переподписание не требуется."
+  fi
+
+  # Создаем cron (если auto)
+  if [ "$RENEW_MODE" == "auto" ]; then
+    create_cron_job
+  fi
+}
+
+#################################################################
+##                   Удаление сертификата по домену            ##
+#################################################################
+function remove_ssl() {
+  local domain="$1"
+  if [ -z "$domain" ]; then
+    log "Использование: 4sl --remove <domain>"
     exit 1
   fi
-  case $CERT_TYPE in
-    --docker)
-      # Для docker не используем домен
-      if [ -n "$2" ]; then
-        log "Ошибка: Имя домена не поддерживается при использовании --docker."
-        exit 1
-      fi
-      readonly CERT_NAME="docker"
-      cert_paths
-      ;;
-    --nginx)
-      readonly CERT_NAME=$2
-      cert_paths 1
-      ;;
-    *)
-      log "Ошибка: Только --docker и --nginx поддерживаются"
-      exit 1
-      ;;
-  esac
 
-  check_dependencies "$CERT_TYPE"
+  log "Удаление SSL для домена $domain ..."
+  local cert="$SSL_CERTIFICATE_DIR_PATH/$domain.crt"
+  local key="$SSL_CERTIFICATE_KEY_DIR_PATH/$domain.key"
+  local dhparam="$SSL_DHPARAM_DIR_PATH/$domain.pem"
+  local snippet="$NGINX_SNIPPETS_DIR_PATH/$domain"
+  local snippet_link="/etc/nginx/snippets/ssl/$domain"
+
+  local all_files=("$cert" "$key" "$dhparam" "$snippet" "$snippet_link")
+
+  if ! $AUTO_CONFIRM; then
+    echo "Файлы для удаления:"
+    for f in "${all_files[@]}"; do
+      echo "$f"
+    done
+    read -r -p "Удалить все эти файлы? (y/n) " yn
+    case $yn in
+      [yY]) true ;;
+      [nN]) log "Операция отменена."; return ;;
+      *)    log "Неверный ответ, отмена..."; return ;;
+    esac
+  fi
+
+  for file in "${all_files[@]}"; do
+    if [ -f "$file" ] || [ -L "$file" ]; then
+      log "Удаляю: $file"
+      rm -f "$file"
+    else
+      log "Файл не найден, пропускаю: $file"
+    fi
+  done
+  log "Удаление сертификата для $domain завершено."
 }
+
+#################################################################
+##                           UPDATE                            ##
+#################################################################
+
+function update_script() {
+  log "Обновление скрипта 4sl..."
+  curl https://raw.githubusercontent.com/AlanLatte/4SL/main/4sl.sh > 4sl.sh && chmod +x ./4sl.sh && sudo mv ./4sl.sh /usr/local/bin/4sl
+  if [ $? -eq 0 ]; then
+    log "Обновление успешно завершено."
+  else
+    log "Сбой при обновлении. Проверьте интернет-подключение и повторите попытку."
+    exit 1
+  fi
+}
+
+#################################################################
+##                           HELP                              ##
+#################################################################
 
 function show_created_by() {
   echo
@@ -261,161 +383,60 @@ function show_created_by() {
 
 function help() {
   echo
+  echo "                        /$$   /$$     /$$$$$$     /$$         "
+  echo "                       | $$  | $$    /$$__  $$   | $$         "
+  echo "                       | $$  | $$   | $$  \\__/   | $$          "
+  echo "                       | $$$$$$$$   |  $$$$$$    | $$          "
+  echo "                       |_____  $$    \\____  $$   | $$          "
+  echo "                             | $$    /$$  \\ $$   | $$          "
+  echo "                             | $$   |  $$$$$$/   | $$$$$$$$    "
+  echo "                             |__/    \\______/    |________/    "
   echo
-  echo "                        /$$   /$$     /$$$$$$     /$$               "
-  echo "                       | $$  | $$    /$$__  $$   | $$                "
-  echo "                       | $$  | $$   | $$  \\__/   | $$                 "
-  echo "                       | $$$$$$$$   |  $$$$$$    | $$             "
-  echo "                       |_____  $$    \\____  $$   | $$                 "
-  echo "                             | $$    /$$  \\ $$   | $$                 "
-  echo "                             | $$   |  $$$$$$/   | $$$$$$$$           "
-  echo "                             |__/    \\______/    |________/           "
+  echo "Usage: 4sl [OPTIONS] [ARGS]"
   echo
+  echo "Основные опции (возможно комбинировать):"
+  echo "  -h, --help               Показать эту справку."
+  echo "  --update                 Обновить 4sl до последней версии."
+  echo "  -exp, --expirations      Показать сроки действия всех сертификатов."
+  echo "  --remove <domain>        Удалить сертификат (CRT, KEY, DH и Snippet) для домена."
   echo
-  echo "Usage: 4sl [options] [arguments]"
-  echo "Options:"
-  echo "-h/--help                               - Показать справку."
-  echo "-s/--ssl [service] [domain?]            - Создать новый SSL-сертификат."
-  echo "-d/--delete [service] [domain?]         - Удалить SSL-сертификат."
-  echo "-exp/--expirations                      - Показать срок действия SSL-сертификатов."
-  echo "--renew-ssl (auto|manual) [service] [domain?] - Переподписать сертификат, если осталось < 7 дней."
-  echo "                                          auto   -> создает cron-задачу на еженедельную проверку"
-  echo "                                          manual -> без cron-задачи."
-  echo "--remove <domain>                       - Удалить сертификат по домену (без указания --nginx)."
-  echo "--silent                                - Включить тихий режим (non-interactive)."
-  echo "-y                                      - Автоматически подтверждать удаление."
-  echo "--update                                - Обновить скрипт 4sl до последней версии."
+  echo "Создание и удаление сертификатов:"
+  echo "  -s, --ssl                Создать новый SSL-сертификат."
+  echo "  -d, --delete             Удалить SSL-сертификат (CRT, KEY, DH, Snippet)."
   echo
-  echo "Service Arguments:"
-  echo "--nginx [domain]                        - SSL-сертификат для Nginx."
-  echo "--docker                                - SSL-сертификат для Docker."
+  echo "Переподписание (renew) сертификата:"
+  echo "  --renew-ssl [auto|manual]"
+  echo "     auto   -> создать/обновить cron-задачу на еженедельную проверку,"
+  echo "               при <= 7 дней до окончания — пересоздать."
+  echo "     manual -> выполнить проверку один раз прямо сейчас без cron."
+  echo
+  echo "Сервисы и домены:"
+  echo "  --nginx <domain>         Указать, что сертификат для Nginx, domain обязателен."
+  echo "  --docker                 Указать, что сертификат для Docker (без домена)."
+  echo
+  echo "Дополнительные флаги:"
+  echo "  --silent                 Не задавать вопросов при создании (subj = CN=domain)."
+  echo "  -y                       Автоматически подтверждать удаления и т.д."
   echo
   echo "Примеры:"
-  echo "4sl --ssl --nginx example.com           - Создать Nginx SSL для example.com."
-  echo "4sl --delete --nginx example.com        - Удалить Nginx SSL для example.com."
-  echo "4sl --ssl --docker                      - Создать Docker SSL."
-  echo "4sl --delete --docker                   - Удалить Docker SSL."
-  echo "4sl --ssl --nginx example.com --silent  - Создать Nginx SSL для example.com (тихий режим)."
-  echo "4sl --delete --nginx example.com -y     - Удалить Nginx SSL без подтверждения."
-  echo "4sl --renew-ssl auto --nginx example.com - Переподписать cert для example.com (cron раз в неделю)."
-  echo "4sl --remove example.com                - Удалить сертификат example.com отовсюду."
-  echo "4sl --update                            - Обновиться до последней версии."
+  echo "  4sl --ssl --nginx example.com                # Создать Nginx SSL для example.com (спросит confirm)."
+  echo "  4sl --ssl --nginx example.com --silent -y    # То же самое, без вопросов."
+  echo "  4sl --delete --nginx example.com -y          # Удалить Nginx SSL без подтверждения."
+  echo "  4sl --ssl --docker                           # Создать Docker SSL (имя = 'docker')."
+  echo
+  echo "  4sl --renew-ssl auto --nginx example.com     # Проверить и переподписать, если < 7 дней, + cron."
+  echo "  4sl --renew-ssl manual --nginx example.com   # Проверить один раз, без cron."
+  echo
+  echo "  # Комбинировать (создать и сразу поставить renew-ssl auto):"
+  echo "  4sl --ssl --nginx example.com --renew-ssl auto --silent -y"
+  echo
   show_created_by
 }
 
-function update_script() {
-  log "Обновление скрипта 4sl..."
-  curl https://raw.githubusercontent.com/AlanLatte/4SL/main/4sl.sh > 4sl.sh && chmod +x ./4sl.sh && sudo mv ./4sl.sh /usr/local/bin/4sl
-  if [ $? -eq 0 ]; then
-    log "Обновление успешно завершено."
-  else
-    log "Сбой при обновлении. Проверьте интернет-подключение и повторите попытку."
-    exit 1
-  fi
-}
 
-function create_cron_job() {
-  # Создаем (или перезаписываем) файл для еженедельного cron-job.
-  local cron_file="/etc/cron.weekly/4sl-renew-$CERT_NAME"
-
-  # Если хотим добавить условия, что если уже есть cron — не перезаписываем, добавляем проверку
-  log "Создаю cron-задачу для еженедельной проверки сертификата $CERT_NAME в $cron_file..."
-  sudo bash -c "cat <<EOF > \"$cron_file\"
-#!/bin/bash
-/usr/local/bin/4sl --renew-ssl manual $CERT_TYPE $CERT_NAME >> /var/log/4sl.log 2>&1
-EOF
-"
-  sudo chmod +x "$cron_file"
-
-  log "Cron-задача $cron_file успешно создана. Проверка будет запускаться раз в неделю."
-}
-
-# Переподписание (renew) сертификатов
-function renew_ssl() {
-  local RENEW_MODE="$1"
-
-  # Если не передан auto|manual, используем auto по умолчанию
-  if [ "$RENEW_MODE" != "auto" ] && [ "$RENEW_MODE" != "manual" ]; then
-    RENEW_MODE="auto"
-  fi
-
-  # Проверяем, что сертификат есть, иначе не с чем работать
-  if [ ! -f "$ssl_certificate_path" ]; then
-    log "Сертификат $ssl_certificate_path не найден! Нечего переподписывать."
-    exit 1
-  fi
-
-  log "Проверяем срок действия сертификата: $ssl_certificate_path"
-  local now
-  now=$(date +%s)
-  local exp_date
-  exp_date=$(openssl x509 -enddate -noout -in "$ssl_certificate_path" 2>/dev/null | cut -d= -f2)
-  if [ -z "$exp_date" ]; then
-    log "Не удалось определить дату окончания действия сертификата. Прерывание..."
-    exit 1
-  fi
-
-  local expiration
-  expiration=$(date -d "$exp_date" +%s 2>/dev/null)
-  if [ $? -ne 0 ]; then
-    log "Ошибка в обработке даты окончания действия сертификата. Прерывание..."
-    exit 1
-  fi
-
-  local diff=$(( expiration - now ))
-  local seven_days=$(( 7 * 24 * 3600 ))
-
-  if [ $diff -lt $seven_days ]; then
-    log "До истечения действия сертификата < 7 дней. Переподписываем..."
-    # Удалим старые файлы и пересоздадим
-    rm -f "$ssl_certificate_path" "$ssl_certificate_key_path"
-    if [ "$CERT_TYPE" == "--nginx" ]; then
-      rm -f "$ssl_dhparam_path"
-    fi
-
-    generate_ssl
-    if [ "$CERT_TYPE" == "--nginx" ]; then
-      generate_dhparam_ssl
-    fi
-    log "Переподписание сертификата для $CERT_NAME завершено."
-  else
-    log "Сертификат $CERT_NAME действителен более 7 дней. Переподписание не требуется."
-  fi
-
-  # Если auto - ставим cron для автоматической еженедельной проверки
-  if [ "$RENEW_MODE" == "auto" ]; then
-    create_cron_job
-  fi
-}
-
-# Удаление сертификата по домену без указания --nginx/--docker
-function remove_ssl() {
-  local domain="$1"
-  if [ -z "$domain" ]; then
-    log "Использование: 4sl --remove <domain>"
-    exit 1
-  fi
-
-  log "Удаление SSL-сертификатов для домена $domain..."
-  local cert="$SSL_CERTIFICATE_DIR_PATH/$domain.crt"
-  local key="$SSL_CERTIFICATE_KEY_DIR_PATH/$domain.key"
-  local dhparam="$SSL_DHPARAM_DIR_PATH/$domain.pem"
-  local snippet="$NGINX_SNIPPETS_DIR_PATH/$domain"
-  local snippet_link="/etc/nginx/snippets/ssl/$domain"
-
-  for file in "$cert" "$key" "$dhparam" "$snippet" "$snippet_link"; do
-    if [ -f "$file" ] || [ -L "$file" ]; then
-      log "Удаляю: $file"
-      rm -f "$file"
-    else
-      log "Файл не найден, пропускаю: $file"
-    fi
-  done
-
-  log "Удаление сертификата для $domain завершено."
-}
-
-
+#################################################################
+##              Разбор аргументов одной командой               ##
+#################################################################
 function process_arguments() {
   if [[ $# -eq 0 ]]; then
     help
@@ -423,88 +444,121 @@ function process_arguments() {
   fi
 
   while [[ $# -gt 0 ]]; do
-    case $1 in
+    case "$1" in
       -h|--help)
         help
         exit 0
         ;;
-      -s|--ssl)
-        shift
-        define_service_name "$1" "$2"
-        if [[ "$*" == *"--silent"* ]]; then
-          SILENT_MODE=true
-        fi
-        if [[ "$*" == *"-y"* ]]; then
-          AUTO_CONFIRM=true
-        fi
-        ssl
-        break
-        ;;
-      -d|--delete)
-        shift
-        define_service_name "$1" "$2"
-        if [[ "$*" == *"-y"* ]]; then
-          AUTO_CONFIRM=true
-        fi
-        delete_ssl
-        break
+      --update)
+        DO_UPDATE=true
         ;;
       -exp|--expirations)
-        ssl_expiration
-        break
-        ;;
-      --renew-ssl)
-        shift
-        local RENEW_MODE="$1"
-
-        # Если первая позиция не auto|manual, считаем её частью define_service_name
-        if [ "$RENEW_MODE" == "auto" ] || [ "$RENEW_MODE" == "manual" ]; then
-          shift
-          define_service_name "$1" "$2"
-        else
-          RENEW_MODE="auto"  # по умолчанию
-          define_service_name "$RENEW_MODE" "$1"
-        fi
-        renew_ssl "$RENEW_MODE"
-        break
+        SHOW_EXPIRATIONS=true
         ;;
       --remove)
         shift
-        remove_ssl "$1"
-        exit 0
+        REMOVE_DOMAIN="$1"
+        ;;
+      -s|--ssl)
+        CREATE_SSL=true
+        ;;
+      -d|--delete)
+        DELETE_SSL=true
+        ;;
+      --renew-ssl)
+        DO_RENEW_SSL=true
+        shift
+        # Проверяем, указал ли пользователь auto/manual
+        if [[ "$1" == "auto" || "$1" == "manual" ]]; then
+          RENEW_MODE="$1"
+        else
+          # Если не указали — используем дефолт, но не откатываем shift
+          RENEW_MODE="auto"
+          # Можно сделать shift назад, но тогда мы можем потерять аргумент
+          # Оставим по умолчанию auto.
+          continue
+        fi
+        ;;
+      --nginx)
+        CERT_TYPE="--nginx"
+        shift
+        CERT_NAME="$1"
+        ;;
+      --docker)
+        CERT_TYPE="--docker"
+        # для Docker CERT_NAME не нужен
         ;;
       --silent)
         SILENT_MODE=true
-        shift
         ;;
       -y)
         AUTO_CONFIRM=true
-        shift
-        ;;
-      --update)
-        update_script
-        exit 0
         ;;
       *)
-        log "Команда не найдена: $1. Используйте -h/--help для справки."
+        log "Неизвестная опция: $1"
         exit 1
         ;;
     esac
+    shift
   done
 }
 
-function create_dirs(){
-  dirs=("$BASE_DIR" "$SSL_DHPARAM_DIR_PATH" "$SSL_CERTIFICATE_KEY_DIR_PATH" "$SSL_CERTIFICATE_DIR_PATH" "$NGINX_SNIPPETS_DIR_PATH")
-  for dir in "${dirs[@]}"; do
-    if ! [ -d "$dir" ]; then
-      mkdir -p "$dir"
-    fi
-  done
-}
+#################################################################
+##                      Точка входа (main)                     ##
+#################################################################
 
-# Основной блок запуска скрипта
 create_dirs
 process_arguments "$@"
+
+# 1) Обновление скрипта
+if $DO_UPDATE; then
+  update_script
+  exit 0
+fi
+
+# 2) Удаление по домену ( --remove domain ), если есть
+if [ -n "$REMOVE_DOMAIN" ]; then
+  remove_ssl "$REMOVE_DOMAIN"
+  exit 0
+fi
+
+# 3) Показ expirations
+if $SHOW_EXPIRATIONS; then
+  ssl_expiration
+  exit 0
+fi
+
+# Если есть тип (nginx/docker), нужно удостовериться, что всё настроено.
+if [ -n "$CERT_TYPE" ]; then
+  # Зададим CERT_NAME по умолчанию, если docker
+  if [ "$CERT_TYPE" == "--docker" ] && [ -z "$CERT_NAME" ]; then
+    CERT_NAME="docker"
+  fi
+  # Инициализируем пути
+  if [ "$CERT_TYPE" == "--nginx" ]; then
+    cert_paths 1   # Nginx -> dhparam
+  else
+    cert_paths     # Docker -> без dhparam
+  fi
+
+  # Проверяем зависимости (nginx/docker)
+  check_dependencies
+fi
+
+# 4) Если нужно создать SSL
+if $CREATE_SSL; then
+  ssl_create_main
+fi
+
+# 5) Если нужно переподписать (renew)
+if $DO_RENEW_SSL; then
+  renew_ssl
+fi
+
+# 6) Если нужно удалить ( -d / --delete )
+if $DELETE_SSL; then
+  delete_ssl_files
+fi
 
 echo
 echo "                              ┌─────────────────────┐"
