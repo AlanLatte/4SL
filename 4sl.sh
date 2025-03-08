@@ -359,7 +359,7 @@ function remove_ssl() {
   local key="$SSL_CERTIFICATE_KEY_DIR_PATH/$domain.key"
   local dhparam="$SSL_DHPARAM_DIR_PATH/$domain.pem"
   local snippet="$NGINX_SNIPPETS_DIR_PATH/$domain"
-  local snippet_link="/etc/nginx/snippets/ssl/$domain"
+  local snippet_link="/etc/nginx/snippets/ssl/4sl-renew-$domain"
   local cron="/etc/cron.weekly/$domain"
 
   local all_files=("$cert" "$key" "$dhparam" "$snippet" "$snippet_link" "$cron")
