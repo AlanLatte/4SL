@@ -18,6 +18,7 @@ DO_UPDATE=false
 DO_RENEW_SSL=false
 RENEW_MODE="auto"  # по умолчанию
 REMOVE_DOMAIN=""
+GENERATE_CA=false
 
 # Остальные настройки
 SILENT_MODE=false
@@ -194,6 +195,50 @@ function generate_ssl() {
     __linebreak
     log "Создан SSL-сертификат:       $ssl_certificate_path"
     log "Создан ключ SSL-сертификата: $ssl_certificate_key_path"
+}
+
+function generate_ca_certificate() {
+    local ca_key_path="$SSL_CERTIFICATE_KEY_DIR_PATH/${CERT_NAME}-ca.key"
+    local ca_cert_path="$SSL_CERTIFICATE_DIR_PATH/${CERT_NAME}-ca.crt"
+
+    # Проверяем, может уже есть
+    if [ -f "$ca_cert_path" ] || [ -f "$ca_key_path" ]; then
+        log "Error: CA сертификат для $CERT_NAME уже существует. Пропускаем генерацию."
+        return
+    fi
+
+    log "Генерация CA (Certificate Authority) для $CERT_NAME ..."
+
+    # Генерация приватного ключа CA (4096 бит для большей безопасности)
+    log "Генерация приватного ключа CA (4096 бит)..."
+    sudo openssl genrsa -out "$ca_key_path" 4096 2>/dev/null
+
+    if [ $? -ne 0 ]; then
+        log "Ошибка при генерации приватного ключа CA!"
+        return
+    fi
+
+    # Генерация корневого сертификата CA
+    log "Генерация корневого сертификата CA..."
+    if [ "$SILENT_MODE" = true ]; then
+        sudo openssl req -new -x509 -days 3650 -key "$ca_key_path" \
+            -out "$ca_cert_path" \
+            -subj "/C=US/ST=State/L=City/O=Organization/OU=CA/CN=$CERT_NAME CA"
+    else
+        sudo openssl req -new -x509 -days 3650 -key "$ca_key_path" \
+            -out "$ca_cert_path"
+    fi
+
+    if [ $? -ne 0 ]; then
+        log "Ошибка при генерации сертификата CA!"
+        return
+    fi
+
+    __linebreak
+    log "Создан CA сертификат: $ca_cert_path"
+    log "Создан CA ключ:       $ca_key_path"
+    log "Срок действия CA:     10 лет (3650 дней)"
+    __linebreak
 }
 
 function ssl_create_main() {
@@ -439,6 +484,7 @@ function help() {
   echo
   echo "Создание и удаление сертификатов:"
   echo "  -s, --ssl                Создать новый SSL-сертификат."
+  echo "  --ca                     Создать CA (Certificate Authority) сертификат."
   echo "  -d, --delete             Удалить SSL-сертификат (CRT, KEY, DH, Snippet)."
   echo
   echo "Переподписание (renew) сертификата:"
@@ -458,6 +504,7 @@ function help() {
   echo "Примеры:"
   echo "  4sl --ssl --nginx example.com                # Создать Nginx SSL для example.com (спросит confirm)."
   echo "  4sl --ssl --nginx example.com --silent -y    # То же самое, без вопросов."
+  echo "  4sl --ca --nginx example.com --silent -y     # Создать CA сертификат для example.com."
   echo "  4sl --delete --nginx example.com -y          # Удалить Nginx SSL без подтверждения."
   echo "  4sl --ssl --docker                           # Создать Docker SSL (имя = 'docker')."
   echo
@@ -531,6 +578,9 @@ function process_arguments() {
       -y)
         AUTO_CONFIRM=true
         ;;
+      --ca)
+        GENERATE_CA=true
+        ;;
       *)
         log "Неизвестная опция: $1"
         exit 1
@@ -585,6 +635,11 @@ fi
 # 4) Если нужно создать SSL
 if $CREATE_SSL; then
   ssl_create_main
+fi
+
+# 4.1) Если нужно создать CA сертификат
+if $GENERATE_CA; then
+  generate_ca_certificate
 fi
 
 # 5) Если нужно переподписать (renew)
