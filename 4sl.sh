@@ -463,8 +463,11 @@ function remove_ssl() {
   local snippet="$NGINX_SNIPPETS_DIR_PATH/$domain"
   local snippet_link="/etc/nginx/snippets/ssl/$domain"
   local cron="/etc/cron.weekly/4sl-renew-$domain"
+  local ca_cert="$SSL_CERTIFICATE_DIR_PATH/$domain-ca.crt"
+  local ca_key="$SSL_CERTIFICATE_KEY_DIR_PATH/$domain-ca.key"
+  local ca_srl="$SSL_CERTIFICATE_DIR_PATH/$domain-ca.srl"
 
-  local all_files=("$cert" "$key" "$dhparam" "$snippet" "$snippet_link" "$cron")
+  local all_files=("$cert" "$key" "$dhparam" "$snippet" "$snippet_link" "$cron" "$ca_cert" "$ca_key" "$ca_srl")
 
   if ! $AUTO_CONFIRM; then
     echo "Файлы для удаления:"
