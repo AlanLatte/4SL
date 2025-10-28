@@ -166,16 +166,73 @@ function generate_ssl() {
         return
     fi
 
-    log "Генерация самоподписанного сертификата для $CERT_NAME ..."
-    if [ "$SILENT_MODE" = true ]; then
-      sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-       -keyout "$ssl_certificate_key_path" \
-       -out "$ssl_certificate_path" \
-       -subj "/C=US/ST=State/L=City/O=Organization/OU=Unit/CN=$CERT_NAME"
+    # Проверяем наличие CA сертификата
+    local ca_key_path="$SSL_CERTIFICATE_KEY_DIR_PATH/${CERT_NAME}-ca.key"
+    local ca_cert_path="$SSL_CERTIFICATE_DIR_PATH/${CERT_NAME}-ca.crt"
+    local csr_path="$SSL_CERTIFICATE_DIR_PATH/${CERT_NAME}.csr"
+
+    if [ -f "$ca_cert_path" ] && [ -f "$ca_key_path" ]; then
+        # CA существует - подписываем сертификат через CA
+        log "Обнаружен CA сертификат. Генерация сертификата, подписанного CA..."
+
+        # 1. Генерируем приватный ключ
+        log "Генерация приватного ключа..."
+        sudo openssl genrsa -out "$ssl_certificate_key_path" 2048 2>/dev/null
+
+        if [ $? -ne 0 ]; then
+            log "Ошибка при генерации приватного ключа!"
+            return
+        fi
+
+        # 2. Создаем CSR (Certificate Signing Request)
+        log "Создание Certificate Signing Request (CSR)..."
+        if [ "$SILENT_MODE" = true ]; then
+            sudo openssl req -new -key "$ssl_certificate_key_path" \
+                -out "$csr_path" \
+                -subj "/C=US/ST=State/L=City/O=Organization/OU=Unit/CN=$CERT_NAME"
+        else
+            sudo openssl req -new -key "$ssl_certificate_key_path" \
+                -out "$csr_path"
+        fi
+
+        if [ $? -ne 0 ]; then
+            log "Ошибка при создании CSR!"
+            rm -f "$ssl_certificate_key_path"
+            return
+        fi
+
+        # 3. Подписываем CSR с помощью CA
+        log "Подписание сертификата с помощью CA..."
+        sudo openssl x509 -req -in "$csr_path" \
+            -CA "$ca_cert_path" \
+            -CAkey "$ca_key_path" \
+            -CAcreateserial \
+            -out "$ssl_certificate_path" \
+            -days 365 2>/dev/null
+
+        if [ $? -ne 0 ]; then
+            log "Ошибка при подписании сертификата!"
+            rm -f "$ssl_certificate_key_path" "$csr_path"
+            return
+        fi
+
+        # 4. Удаляем временный CSR файл
+        rm -f "$csr_path"
+
+        log "Сертификат успешно подписан CA"
     else
-      sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-       -keyout "$ssl_certificate_key_path" \
-       -out "$ssl_certificate_path"
+        # CA не существует - создаем самоподписанный сертификат
+        log "CA не обнаружен. Генерация самоподписанного сертификата для $CERT_NAME ..."
+        if [ "$SILENT_MODE" = true ]; then
+          sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+           -keyout "$ssl_certificate_key_path" \
+           -out "$ssl_certificate_path" \
+           -subj "/C=US/ST=State/L=City/O=Organization/OU=Unit/CN=$CERT_NAME"
+        else
+          sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+           -keyout "$ssl_certificate_key_path" \
+           -out "$ssl_certificate_path"
+        fi
     fi
 
     # Если всё успешно и это nginx-сертификат, прописываем путь в snippets
@@ -511,8 +568,11 @@ function help() {
   echo "  4sl --renew-ssl auto --nginx example.com     # Проверить и переподписать, если < 7 дней, + cron."
   echo "  4sl --renew-ssl manual --nginx example.com   # Проверить один раз, без cron."
   echo
-  echo "  # Комбинировать (создать и сразу поставить renew-ssl auto):"
-  echo "  4sl --ssl --nginx example.com --renew-ssl auto --silent -y"
+  echo "  # Комбинировать (создать CA + SSL + renew-ssl auto):"
+  echo "  4sl --ca --ssl --nginx example.com --renew-ssl auto --silent -y"
+  echo
+  echo "  # Создать CA и SSL одной командой:"
+  echo "  4sl --ca --ssl --nginx example.com --silent -y"
   echo
   show_created_by
 }
@@ -632,14 +692,14 @@ if [ -n "$CERT_TYPE" ]; then
   check_dependencies
 fi
 
-# 4) Если нужно создать SSL
-if $CREATE_SSL; then
-  ssl_create_main
-fi
-
-# 4.1) Если нужно создать CA сертификат
+# 4) Если нужно создать CA сертификат (сначала CA, потом SSL)
 if $GENERATE_CA; then
   generate_ca_certificate
+fi
+
+# 4.1) Если нужно создать SSL
+if $CREATE_SSL; then
+  ssl_create_main
 fi
 
 # 5) Если нужно переподписать (renew)
