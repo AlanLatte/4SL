@@ -201,23 +201,33 @@ function generate_ssl() {
             return
         fi
 
-        # 3. Подписываем CSR с помощью CA
+        # 3. Создаем временный конфиг с расширениями для серверного сертификата
+        local ext_file="$SSL_CERTIFICATE_DIR_PATH/${CERT_NAME}.ext"
+        cat > "$ext_file" <<EOF
+basicConstraints = CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:${CERT_NAME}
+EOF
+
+        # 4. Подписываем CSR с помощью CA
         log "Подписание сертификата с помощью CA..."
         sudo openssl x509 -req -in "$csr_path" \
             -CA "$ca_cert_path" \
             -CAkey "$ca_key_path" \
             -CAcreateserial \
             -out "$ssl_certificate_path" \
-            -days 365 2>/dev/null
+            -days 365 \
+            -extfile "$ext_file" 2>/dev/null
 
         if [ $? -ne 0 ]; then
             log "Ошибка при подписании сертификата!"
-            rm -f "$ssl_certificate_key_path" "$csr_path"
+            rm -f "$ssl_certificate_key_path" "$csr_path" "$ext_file"
             return
         fi
 
-        # 4. Удаляем временный CSR файл
-        rm -f "$csr_path"
+        # 5. Удаляем временные файлы
+        rm -f "$csr_path" "$ext_file"
 
         log "Сертификат успешно подписан CA"
     else
@@ -280,10 +290,16 @@ function generate_ca_certificate() {
     if [ "$SILENT_MODE" = true ]; then
         sudo openssl req -new -x509 -days 3650 -key "$ca_key_path" \
             -out "$ca_cert_path" \
-            -subj "/C=US/ST=State/L=City/O=Organization/OU=CA/CN=$CERT_NAME CA"
+            -subj "/C=US/ST=State/L=City/O=Organization/OU=CA/CN=$CERT_NAME CA" \
+            -addext "basicConstraints = critical, CA:TRUE" \
+            -addext "keyUsage = critical, keyCertSign, cRLSign" \
+            -addext "subjectKeyIdentifier = hash"
     else
         sudo openssl req -new -x509 -days 3650 -key "$ca_key_path" \
-            -out "$ca_cert_path"
+            -out "$ca_cert_path" \
+            -addext "basicConstraints = critical, CA:TRUE" \
+            -addext "keyUsage = critical, keyCertSign, cRLSign" \
+            -addext "subjectKeyIdentifier = hash"
     fi
 
     if [ $? -ne 0 ]; then
@@ -466,8 +482,10 @@ function remove_ssl() {
   local ca_cert="$SSL_CERTIFICATE_DIR_PATH/$domain-ca.crt"
   local ca_key="$SSL_CERTIFICATE_KEY_DIR_PATH/$domain-ca.key"
   local ca_srl="$SSL_CERTIFICATE_DIR_PATH/$domain-ca.srl"
+  local ext_file="$SSL_CERTIFICATE_DIR_PATH/$domain.ext"
+  local csr_file="$SSL_CERTIFICATE_DIR_PATH/$domain.csr"
 
-  local all_files=("$cert" "$key" "$dhparam" "$snippet" "$snippet_link" "$cron" "$ca_cert" "$ca_key" "$ca_srl")
+  local all_files=("$cert" "$key" "$dhparam" "$snippet" "$snippet_link" "$cron" "$ca_cert" "$ca_key" "$ca_srl" "$ext_file" "$csr_file")
 
   if ! $AUTO_CONFIRM; then
     echo "Файлы для удаления:"
